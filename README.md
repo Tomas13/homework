@@ -5,12 +5,16 @@ is secured with OAuth 2 and JWT, and is monitored with Spring Boot Actuator and 
 
 ## Tasks
 
-| Task | Topic | Docs |
-|---|---|---|
-| 1 | Project setup: Gradle, Java toolchain, first Spring Boot app | [docs/task-1-project-setup.md](docs/task-1-project-setup.md) |
-| 2 | `Product` entity, Spring Data JPA repository, CRUD REST controller | [docs/task-2-crud-rest-api.md](docs/task-2-crud-rest-api.md) |
-| 3 | OAuth 2 authorization server, JWT, role-based access, browser UI | [docs/task-3-security.md](docs/task-3-security.md) |
-| 6 | Actuator, custom health indicators, custom Prometheus metrics | [docs/task-6-actuator.md](docs/task-6-actuator.md) |
+| Task | Topic | Documentation | Pull request |
+|---|---|---|---|
+| 1 | Project setup: Gradle, Java toolchain, first Spring Boot app | [Task 1 docs](https://github.com/Tomas13/homework/blob/e9b65de/docs/task-1-project-setup.md) | initial commit on `main` |
+| 2 | `Product` entity, Spring Data JPA repository, CRUD REST controller | [Task 2 docs](https://github.com/Tomas13/homework/blob/e9b65de/docs/task-2-crud-rest-api.md) | [#1](https://github.com/Tomas13/homework/pull/1) |
+| 3 | OAuth 2 authorization server, JWT, role-based access | [Task 3 docs](https://github.com/Tomas13/homework/blob/e9b65de/docs/task-3-security.md) | [#2](https://github.com/Tomas13/homework/pull/2) |
+| 3 | Browser UI for the secured API | [Task 3 docs: browser](https://github.com/Tomas13/homework/blob/e9b65de/docs/task-3-security.md#in-the-browser-recommended) | [#3](https://github.com/Tomas13/homework/pull/3) |
+| 6 | Actuator, custom health indicators, custom Prometheus metrics | [Task 6 docs](https://github.com/Tomas13/homework/blob/e9b65de/docs/task-6-actuator.md) | [#4](https://github.com/Tomas13/homework/pull/4) |
+| | README and documentation | | [#5](https://github.com/Tomas13/homework/pull/5) |
+
+The pull requests are stacked (each one builds on the previous) and are merged in order, #1 → #5.
 
 ## Requirements
 
