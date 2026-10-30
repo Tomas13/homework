@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -71,11 +72,30 @@ public class SecurityConfig {
 	}
 
 	/**
+	 * Actuator endpoints: health, info and prometheus are open (for load balancers and the Prometheus scraper),
+	 * everything else needs a JWT with the ADMIN role. Health details are only shown to ADMIN as well.
+	 */
+	@Bean
+	@Order(2)
+	public SecurityFilterChain actuatorSecurityFilterChain(HttpSecurity http) throws Exception {
+		http
+				.securityMatcher(EndpointRequest.toAnyEndpoint())
+				.authorizeHttpRequests(authorize -> authorize
+						.requestMatchers(EndpointRequest.to("health", "info", "prometheus")).permitAll()
+						.anyRequest().hasRole("ADMIN"))
+				.oauth2ResourceServer(resourceServer -> resourceServer
+						.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
+				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.csrf(csrf -> csrf.disable());
+		return http.build();
+	}
+
+	/**
 	 * REST API secured as an OAuth 2 resource server: every request needs a valid JWT bearer token.
 	 * USER and ADMIN can read products, only ADMIN can create, update or delete them.
 	 */
 	@Bean
-	@Order(2)
+	@Order(3)
 	public SecurityFilterChain apiSecurityFilterChain(HttpSecurity http) throws Exception {
 		http
 				.securityMatcher("/api/**")
@@ -94,7 +114,7 @@ public class SecurityConfig {
 	 * users sign in with during the authorization code flow.
 	 */
 	@Bean
-	@Order(3)
+	@Order(4)
 	public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
 		http
 				.authorizeHttpRequests(authorize -> authorize
