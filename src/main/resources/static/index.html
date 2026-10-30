@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Product Catalog</title>
+	<style>
+		:root {
+			--bg: #f6f7f9; --card: #ffffff; --text: #1d2329; --muted: #66707a; --border: #dde1e6;
+			--accent: #2f6fde; --accent-text: #ffffff; --danger: #c93a3a; --ok-bg: #e7f5ec; --ok-text: #1f6b3a;
+			--err-bg: #fdecec; --err-text: #9b2323;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #15181c; --card: #1e2227; --text: #e6e9ec; --muted: #9aa3ad; --border: #343a42;
+				--accent: #5b8ff0; --danger: #e36464; --ok-bg: #173523; --ok-text: #8fd6a8;
+				--err-bg: #3d1d1d; --err-text: #f2a3a3;
+			}
+		}
+		* { box-sizing: border-box; }
+		body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+		main { max-width: 860px; margin: 0 auto; padding: 24px 16px; }
+		h1 { font-size: 22px; margin: 0; }
+		h2 { font-size: 16px; margin: 0 0 12px; }
+		header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+		.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+		.muted { color: var(--muted); font-size: 13px; }
+		.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--accent); color: var(--accent-text); font-size: 12px; margin-left: 4px; }
+		button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }
+		button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+		button.danger { color: var(--danger); }
+		button.small { padding: 2px 10px; font-size: 13px; }
+		table { width: 100%; border-collapse: collapse; }
+		th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+		th { font-size: 13px; color: var(--muted); font-weight: 600; }
+		td.num, th.num { text-align: right; }
+		td.actions { text-align: right; white-space: nowrap; }
+		form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+		label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+		input { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+		.message { padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; }
+		.message.ok { background: var(--ok-bg); color: var(--ok-text); }
+		.message.error { background: var(--err-bg); color: var(--err-text); }
+		.table-wrap { overflow-x: auto; }
+		[hidden] { display: none !important; }
+	</style>
+</head>
+<body>
+<main>
+	<header>
+		<h1>Product Catalog</h1>
+		<div id="session"></div>
+	</header>
+
+	<div id="message" class="message" hidden></div>
+
+	<section id="signed-out" class="card" hidden>
+		<h2>Sign in</h2>
+		<p>Log in with OAuth 2 to get a JWT access token for the product API.</p>
+		<p class="muted">Demo users: <b>user</b> / password (can read) &middot; <b>admin</b> / admin (can read and change)</p>
+		<button class="primary" id="login">Log in</button>
+	</section>
+
+	<div id="signed-in" hidden>
+		<section class="card">
+			<h2 id="form-title">Add product</h2>
+			<form id="product-form">
+				<label>Name <input name="name" required></label>
+				<label>Description <input name="description"></label>
+				<label>Price <input name="price" type="number" step="0.01" min="0" required></label>
+				<label>Quantity <input name="quantity" type="number" step="1" min="0" required></label>
+				<div>
+					<button class="primary" type="submit" id="save">Add</button>
+					<button type="button" id="cancel-edit" hidden>Cancel</button>
+				</div>
+			</form>
+		</section>
+
+		<section class="card">
+			<h2>Products <button class="small" id="reload">Reload</button></h2>
+			<div class="table-wrap">
+				<table>
+					<thead><tr><th>ID</th><th>Name</th><th>Description</th><th class="num">Price</th><th class="num">Qty</th><th></th></tr></thead>
+					<tbody id="products"></tbody>
+				</table>
+			</div>
+		</section>
+	</div>
+</main>
+
+<script>
+	// The authorization server only accepts redirects to 127.0.0.1 (not "localhost").
+	if (location.hostname === 'localhost') {
+		location.replace(location.href.replace('//localhost', '//127.0.0.1'));
+	}
+
+	const CLIENT_ID = 'product-ui';
+	const REDIRECT_URI = location.origin + '/';
+	const store = {
+		get: key => { try { return sessionStorage.getItem(key); } catch { return null; } },
+		set: (key, value) => { try { sessionStorage.setItem(key, value); } catch { } },
+		remove: key => { try { sessionStorage.removeItem(key); } catch { } },
+	};
+
+	let editingId = null;
+
+	// ---------- OAuth 2: authorization code flow with PKCE ----------
+
+	function randomString(bytes) {
+		const data = crypto.getRandomValues(new Uint8Array(bytes));
+		return base64Url(data);
+	}
+
+	function base64Url(bytes) {
+		return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+	}
+
+	async function codeChallenge(verifier) {
+		const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+		return base64Url(new Uint8Array(digest));
+	}
+
+	async function login() {
+		const state = randomString(16);
+		const verifier = randomString(48);
+		store.set('oauth_state', state);
+		store.set('oauth_verifier', verifier);
+
+		const params = new URLSearchParams({
+			response_type: 'code',
+			client_id: CLIENT_ID,
+			scope: 'products',
+			redirect_uri: REDIRECT_URI,
+			state,
+			code_challenge: await codeChallenge(verifier),
+			code_challenge_method: 'S256',
+		});
+		location.assign('/oauth2/authorize?' + params);
+	}
+
+	async function handleCallback(params) {
+		history.replaceState(null, '', '/');
+
+		if (params.get('error')) {
+			showMessage('Login failed: ' + (params.get('error_description') || params.get('error')), true);
+			return;
+		}
+		if (params.get('state') !== store.get('oauth_state')) {
+			showMessage('Login failed: state mismatch, please try again.', true);
+			return;
+		}
+
+		const response = await fetch('/oauth2/token', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({
+				grant_type: 'authorization_code',
+				code: params.get('code'),
+				redirect_uri: REDIRECT_URI,
+				client_id: CLIENT_ID,
+				code_verifier: store.get('oauth_verifier'),
+			}),
+		});
+		store.remove('oauth_state');
+		store.remove('oauth_verifier');
+
+		if (!response.ok) {
+			showMessage('Could not get a token (HTTP ' + response.status + '). Please log in again.', true);
+			return;
+		}
+		const token = await response.json();
+		store.set('access_token', token.access_token);
+		showMessage('Logged in. Your API requests now carry a JWT access token.');
+	}
+
+	function logout() {
+		store.remove('access_token');
+		// Ends the login session on the authorization server too; Spring shows a confirmation page, then returns here.
+		location.assign('/logout');
+	}
+
+	function currentToken() {
+		const token = store.get('access_token');
+		if (!token) {
+			return null;
+		}
+		const claims = decodeJwt(token);
+		if (!claims || claims.exp * 1000 <= Date.now()) {
+			store.remove('access_token');
+			return null;
+		}
+		return { token, claims };
+	}
+
+	function decodeJwt(token) {
+		try {
+			const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+			return JSON.parse(atob(payload));
+		} catch {
+			return null;
+		}
+	}
+
+	// ---------- API calls ----------
+
+	async function api(method, path, body) {
+		const session = currentToken();
+		if (!session) {
+			render();
+			showMessage('Your session expired, please log in again.', true);
+			throw new Error('no token');
+		}
+
+		const response = await fetch(path, {
+			method,
+			headers: Object.assign({ Authorization: 'Bearer ' + session.token },
+					body ? { 'Content-Type': 'application/json' } : {}),
+			body: body ? JSON.stringify(body) : undefined,
+		});
+
+		if (response.status === 401) {
+			store.remove('access_token');
+			render();
+			showMessage('Your token is no longer valid (HTTP 401), please log in again.', true);
+			throw new Error('401');
+		}
+		if (response.status === 403) {
+			const roles = (session.claims.roles || []).join(', ') || 'none';
+			showMessage('HTTP 403 Forbidden: your roles (' + roles + ') are not allowed to ' + method + ' ' + path + '.', true);
+			throw new Error('403');
+		}
+		if (!response.ok) {
+			showMessage('HTTP ' + response.status + ' for ' + method + ' ' + path + '.', true);
+			throw new Error(String(response.status));
+		}
+		return response.status === 204 ? null : response.json();
+	}
+
+	async function loadProducts() {
+		const products = await api('GET', '/api/products');
+		const tbody = document.getElementById('products');
+		tbody.replaceChildren();
+
+		if (products.length === 0) {
+			const row = tbody.insertRow();
+			const cell = row.insertCell();
+			cell.colSpan = 6;
+			cell.className = 'muted';
+			cell.textContent = 'No products yet.';
+			return;
+		}
+
+		for (const product of products) {
+			const row = tbody.insertRow();
+			addCell(row, product.id);
+			addCell(row, product.name);
+			addCell(row, product.description ?? '');
+			addCell(row, Number(product.price).toFixed(2), 'num');
+			addCell(row, product.quantity, 'num');
+
+			const actions = row.insertCell();
+			actions.className = 'actions';
+			actions.append(button('Edit', 'small', () => startEdit(product)), ' ',
+					button('Delete', 'small danger', () => deleteProduct(product)));
+		}
+	}
+
+	function addCell(row, text, className) {
+		const cell = row.insertCell();
+		cell.textContent = text;
+		if (className) {
+			cell.className = className;
+		}
+	}
+
+	function button(text, className, onClick) {
+		const element = document.createElement('button');
+		element.textContent = text;
+		element.className = className;
+		element.addEventListener('click', onClick);
+		return element;
+	}
+
+	async function saveProduct(event) {
+		event.preventDefault();
+		const form = event.target;
+		const product = {
+			name: form.name.value.trim(),
+			description: form.description.value.trim() || null,
+			price: Number(form.price.value),
+			quantity: Number(form.quantity.value),
+		};
+
+		try {
+			if (editingId === null) {
+				const created = await api('POST', '/api/products', product);
+				showMessage('Created product #' + created.id + ' (' + created.name + ').');
+			} else {
+				const updated = await api('PUT', '/api/products/' + editingId, product);
+				showMessage('Updated product #' + updated.id + '.');
+			}
+			resetForm();
+			await loadProducts();
+		} catch {
+			// message already shown
+		}
+	}
+
+	async function deleteProduct(product) {
+		if (!confirm('Delete "' + product.name + '"?')) {
+			return;
+		}
+		try {
+			await api('DELETE', '/api/products/' + product.id);
+			showMessage('Deleted product #' + product.id + '.');
+			if (editingId === product.id) {
+				resetForm();
+			}
+			await loadProducts();
+		} catch {
+			// message already shown
+		}
+	}
+
+	function startEdit(product) {
+		editingId = product.id;
+		const form = document.getElementById('product-form');
+		form.name.value = product.name;
+		form.description.value = product.description ?? '';
+		form.price.value = product.price;
+		form.quantity.value = product.quantity;
+		document.getElementById('form-title').textContent = 'Edit product #' + product.id;
+		document.getElementById('save').textContent = 'Save';
+		document.getElementById('cancel-edit').hidden = false;
+		form.name.focus();
+	}
+
+	function resetForm() {
+		editingId = null;
+		document.getElementById('product-form').reset();
+		document.getElementById('form-title').textContent = 'Add product';
+		document.getElementById('save').textContent = 'Add';
+		document.getElementById('cancel-edit').hidden = true;
+	}
+
+	// ---------- UI ----------
+
+	function showMessage(text, isError) {
+		const element = document.getElementById('message');
+		element.textContent = text;
+		element.className = 'message ' + (isError ? 'error' : 'ok');
+		element.hidden = false;
+	}
+
+	function render() {
+		const session = currentToken();
+		document.getElementById('signed-out').hidden = !!session;
+		document.getElementById('signed-in').hidden = !session;
+
+		const sessionBox = document.getElementById('session');
+		sessionBox.replaceChildren();
+		if (!session) {
+			return;
+		}
+
+		const who = document.createElement('span');
+		who.append('Signed in as ');
+		const name = document.createElement('b');
+		name.textContent = session.claims.sub;
+		who.append(name);
+		for (const role of session.claims.roles || []) {
+			const badge = document.createElement('span');
+			badge.className = 'badge';
+			badge.textContent = role;
+			who.append(badge);
+		}
+		const minutesLeft = Math.max(0, Math.round((session.claims.exp * 1000 - Date.now()) / 60000));
+		const expiry = document.createElement('div');
+		expiry.className = 'muted';
+		expiry.textContent = 'Token valid for ' + minutesLeft + ' more min';
+
+		const info = document.createElement('div');
+		info.append(who, expiry);
+		sessionBox.append(info);
+		sessionBox.style.display = 'flex';
+		sessionBox.style.gap = '12px';
+		sessionBox.style.alignItems = 'center';
+		sessionBox.append(button('Log out', '', logout));
+	}
+
+	async function start() {
+		document.getElementById('login').addEventListener('click', login);
+		document.getElementById('product-form').addEventListener('submit', saveProduct);
+		document.getElementById('cancel-edit').addEventListener('click', resetForm);
+		document.getElementById('reload').addEventListener('click', () => loadProducts().catch(() => {}));
+
+		const params = new URLSearchParams(location.search);
+		if (params.has('code') || params.has('error')) {
+			await handleCallback(params);
+		}
+
+		render();
+		if (currentToken()) {
+			loadProducts().catch(() => {});
+		}
+	}
+
+	start();
+</script>
+</body>
+</html>

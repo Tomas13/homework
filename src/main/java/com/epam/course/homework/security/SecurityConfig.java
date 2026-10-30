@@ -90,16 +90,18 @@ public class SecurityConfig {
 	}
 
 	/**
-	 * Everything else: the form login page users sign in with during the authorization code flow.
+	 * Everything else: the browser UI (public, it holds no data itself) and the form login page
+	 * users sign in with during the authorization code flow.
 	 */
 	@Bean
 	@Order(3)
 	public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
 		http
 				.authorizeHttpRequests(authorize -> authorize
-						.requestMatchers("/authorized", "/error").permitAll()
+						.requestMatchers("/", "/index.html", "/authorized", "/error").permitAll()
 						.anyRequest().authenticated())
-				.formLogin(Customizer.withDefaults());
+				.formLogin(Customizer.withDefaults())
+				.logout(logout -> logout.logoutSuccessUrl("/"));
 		return http.build();
 	}
 
@@ -137,7 +139,23 @@ public class SecurityConfig {
 						.build())
 				.tokenSettings(TokenSettings.builder().accessTokenTimeToLive(Duration.ofMinutes(30)).build())
 				.build();
-		return new InMemoryRegisteredClientRepository(productClient);
+
+		// Public client for the browser UI (static/index.html): JavaScript can't keep a secret, so it has none
+		// and relies on PKCE instead.
+		RegisteredClient browserClient = RegisteredClient.withId(UUID.randomUUID().toString())
+				.clientId("product-ui")
+				.clientAuthenticationMethod(ClientAuthenticationMethod.NONE)
+				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+				.redirectUri("http://127.0.0.1:8080/")
+				.scope("products")
+				.clientSettings(ClientSettings.builder()
+						.requireProofKey(true)
+						.requireAuthorizationConsent(false)
+						.build())
+				.tokenSettings(TokenSettings.builder().accessTokenTimeToLive(Duration.ofMinutes(30)).build())
+				.build();
+
+		return new InMemoryRegisteredClientRepository(productClient, browserClient);
 	}
 
 	/**
